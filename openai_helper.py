@@ -11,20 +11,25 @@ def extract_data_from_pdf_text(text):
     Use OpenAI's GPT model to extract structured hourly revenue data from PDF text
     """
     prompt = f"""
-    Extract all hourly revenue data from the following text that was OCR'd from a PDF.
+    Extract ALL hourly revenue data from the following text that was OCR'd from a PDF.
     
-    The data is in the format "HH HRS [Quantity] $[Amount]" where:
-    - HH is the hour (like 09, 10, 11, 12, 13, 14, 15, 16, etc)
+    VERY IMPORTANT: Pay extremely close attention to hours 14 (2 PM) and 15 (3 PM), which may be formatted as:
+    - 14 HRS or 15 HRS
+    - l4 HRS or l5 HRS (OCR might confuse 1 with l)
+    - M HRS (might represent 14 in some cases)
+    - 2 PM or 3 PM (in 12-hour format)
+    
+    The data usually follows this format: "HH HRS [Quantity] $[Amount]" where:
+    - HH is the hour (numbers like 09, 10, 11, 12, 13, 14, 15, 16, etc.)
     - [Quantity] is the number of items (sometimes missing)
     - [Amount] is the dollar amount
     
-    Pay special attention to entries for hours 14 (2 PM) and 15 (3 PM) which may be harder to detect.
-    Do not make up or estimate any values. Only extract what is actually present in the text.
-    
     Return the data as a JSON array with each entry having:
-    - "Hour": number (e.g., 9, 10, 11)
+    - "Hour": number (e.g., 9, 10, 11, 14, 15)
     - "Quantity": number or null if missing
-    - "Revenue": float dollar amount
+    - "Revenue": dollar amount including $ symbol
+    
+    DO NOT make up or estimate any values. Only extract what is actually present in the text.
     
     Here's the text:
     {text}
@@ -65,12 +70,21 @@ def analyze_image_for_revenue_data(image_base64):
     """
     prompt = """
     Analyze this image of a revenue log and extract all hourly revenue entries.
-    Each entry should have:
-    - Hour (numeric, like 9, 10, 11, 14, 15)
-    - Quantity (numeric, or null if missing)
-    - Revenue (dollar amount)
     
-    Pay special attention to entries for hours 14 (2 PM) and 15 (3 PM).
+    VERY IMPORTANT: Look extremely carefully for hours 14 (2 PM) and 15 (3 PM).
+    These hours may appear as "14 HRS", "14 HR", "14H", "l4 HRS", "14", or similar patterns.
+    
+    Each entry should have:
+    - Hour (numeric value only, like 9, 10, 11, 14, 15)
+    - Quantity (numeric value only, or null if missing)
+    - Revenue (dollar amount, including the $ symbol)
+    
+    For hours around 2 PM and 3 PM, check for entries that might be:
+    - 14 HRS or 15 HRS (standard format)
+    - l4 HRS or l5 HRS (OCR might confuse 1 with l)
+    - M HRS (might represent 14 in some cases)
+    - Any entry with timestamps around 2PM or 3PM
+    
     Only extract what you can actually see - do not make up or estimate values.
     Format your response as a JSON array of objects.
     """

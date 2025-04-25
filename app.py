@@ -345,10 +345,19 @@ def parse_revenue_data_with_openai(images):
                 if hour <= 0 or hour > 23:
                     continue
                     
-                revenue = float(item.get("Revenue", 0))
+                # Handle revenue that might be returned with dollar sign
+                revenue_str = str(item.get("Revenue", "0"))
+                if revenue_str.startswith('$'):
+                    revenue_str = revenue_str[1:]  # Remove the dollar sign
+                revenue = float(revenue_str)
+                
+                # Handle quantity that might be a string
                 quantity = item.get("Quantity")
                 if quantity is not None:
-                    quantity = int(quantity)
+                    if isinstance(quantity, str):
+                        quantity = int(quantity.replace(',', ''))
+                    else:
+                        quantity = int(quantity)
                 
                 # Create a formatted time string
                 time_str = f"{hour:02d}:00"
