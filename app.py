@@ -349,7 +349,7 @@ def parse_revenue_data_with_openai(images):
                 revenue_str = str(item.get("Revenue", "0"))
                 if revenue_str.startswith('$'):
                     revenue_str = revenue_str[1:]  # Remove the dollar sign
-                revenue = float(revenue_str)
+                revenue = float(revenue_str.replace(',', ''))  # Remove commas before converting
                 
                 # Handle quantity that might be a string
                 quantity = item.get("Quantity")
