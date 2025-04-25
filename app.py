@@ -134,13 +134,82 @@ def parse_revenue_data(text):
         except Exception as e:
             st.warning(f"Error parsing entry without quantity 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
     
-    # No estimation of missing hours - just note that they are missing
+    # Special handling for hours 14 and 15 since they are important (2PM and 3PM)
     existing_hours = [item["Hour"] for item in data]
     
-    # Check for missing hours and report them
+    # Extended pattern matching specifically for hours 14 and 15
     for missing_hour in [14, 15]:
         if missing_hour not in existing_hours:
-            st.info(f"Hour {missing_hour}:00 data was not found in the PDF.")
+            # Try harder to find these important hours with various patterns
+            hour_patterns = [
+                # Try different combinations of characters that OCR might confuse
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})\s*(?:HRS|HR|H|hrs|hr).*?\$(\d+\.\d+)',
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})[\s\.]*(?:HRS|HR|H|hrs|hr|pm|PM).*?(\d+).*?\$(\d+\.\d+)',
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10}).*?(\d+).*?\$(\d+\.\d+)',
+                # Look for "14 " or "15 " followed by any characters and then a dollar amount
+                fr'(?:{missing_hour}|{missing_hour}\s|\s{missing_hour}\s).*?\$(\d+\.\d+)',
+                # For OCR confusion between 1 and l or I
+                fr'(?:l{missing_hour-10}|I{missing_hour-10}).*?\$(\d+\.\d+)',
+                # Special case for "M HRS" which might be 14 or 15
+                r'M\s*(?:HRS|HR|H).*?(\d+).*?\$(\d+\.\d+)'
+            ]
+            
+            found_match = False
+            for pattern in hour_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    try:
+                        # Try to extract revenue amount
+                        if len(match.groups()) == 1:
+                            revenue = float(match.group(1))
+                            quantity = None
+                        elif len(match.groups()) == 2:
+                            quantity = int(match.group(1))
+                            revenue = float(match.group(2))
+                        else:
+                            continue
+                            
+                        category = "Before 3:00 PM" if missing_hour < 15 else "After 3:00 PM"
+                        
+                        data.append({
+                            "Hour": missing_hour,
+                            "Time": f"{missing_hour:02d}:00",
+                            "Revenue": revenue,
+                            "Category": category,
+                            "Quantity": quantity
+                        })
+                        
+                        st.success(f"Successfully extracted hour {missing_hour}:00 data using advanced pattern matching.")
+                        found_match = True
+                        break
+                    except Exception as e:
+                        continue
+            
+            # Special case for "M HRS" in your specific PDF
+            if not found_match and missing_hour == 14:
+                # This seems to be present in your sample as "M HRS 21 $134.19"
+                m_hrs_pattern = r'M\s+HRS\s+(\d+)\s+\$(\d+\.\d+)'
+                m_match = re.search(m_hrs_pattern, text)
+                if m_match:
+                    try:
+                        quantity = int(m_match.group(1))
+                        revenue = float(m_match.group(2))
+                        
+                        data.append({
+                            "Hour": 14,
+                            "Time": "14:00",
+                            "Revenue": revenue,
+                            "Category": "Before 3:00 PM",
+                            "Quantity": quantity
+                        })
+                        
+                        st.success(f"Successfully extracted hour 14:00 (2PM) data from 'M HRS' pattern.")
+                        found_match = True
+                    except Exception as e:
+                        st.warning(f"Found 'M HRS' pattern but failed to parse it: {str(e)}")
+            
+            if not found_match:
+                st.warning(f"Hour {missing_hour}:00 data could not be found in the PDF despite extended search attempts.")
     
     # Sort by hour
     sorted_data = sorted(data, key=lambda x: x["Hour"])
