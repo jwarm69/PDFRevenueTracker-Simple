@@ -134,42 +134,13 @@ def parse_revenue_data(text):
         except Exception as e:
             st.warning(f"Error parsing entry without quantity 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
     
-    # Check for missing hours (14 and 15)
+    # No estimation of missing hours - just note that they are missing
     existing_hours = [item["Hour"] for item in data]
     
-    # Check for specifically missing hours 14 and 15 (which often have OCR issues)
+    # Check for missing hours and report them
     for missing_hour in [14, 15]:
         if missing_hour not in existing_hours:
-            # Search for any pattern that might indicate these hours
-            # Try to find revenue amounts for these hours
-            special_pattern = fr'(?:14|15|l4|l5|I4|I5|14\s|15\s).*?\$(\d+\.\d+)'
-            special_match = re.search(special_pattern, text)
-            
-            # If we can't find a specific amount, approximate one based on nearby hours
-            revenue_amount = 0.0
-            quantity = 0
-            
-            try:
-                if special_match:
-                    revenue_amount = float(special_match.group(1))
-                    quantity = 5  # Default to a reasonable value
-                else:
-                    # Infer a value based on the average of other entries
-                    revenue_amount = sum(item["Revenue"] for item in data) / len(data)
-                    quantity = int(sum(item["Quantity"] for item in data if item["Quantity"] is not None) / len(data))
-                    st.info(f"Hour {missing_hour}:00 data was not explicitly found in the PDF. Using estimated values.")
-                
-                category = "Before 3:00 PM" if missing_hour < 15 else "After 3:00 PM"
-                
-                data.append({
-                    "Hour": missing_hour,
-                    "Time": f"{missing_hour:02d}:00",
-                    "Revenue": revenue_amount,
-                    "Category": category,
-                    "Quantity": quantity
-                })
-            except Exception as e:
-                st.warning(f"Could not add estimated data for hour {missing_hour}: {str(e)}")
+            st.info(f"Hour {missing_hour}:00 data was not found in the PDF.")
     
     # Sort by hour
     sorted_data = sorted(data, key=lambda x: x["Hour"])
