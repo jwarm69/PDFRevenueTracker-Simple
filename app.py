@@ -54,29 +54,54 @@ def extract_text_from_images(images):
 
 # Function to parse the extracted text
 def parse_revenue_data(text):
-    # Regex pattern to match time and amount pattern like "11:00 AM    $122.57"
-    pattern = r'(\d{1,2}:\d{2}\s+[AP]M)\s+\$(\d+\.\d{2})'
+    # Regex pattern to match time and amount pattern like "11 HRS    $122.57"
+    pattern = r'(\d{1,2})\s+HRS\s+\d+\s+\$(\d+\.\d{2})'
     matches = re.findall(pattern, text)
     
     data = []
-    for time_str, amount_str in matches:
+    for hour_str, amount_str in matches:
         try:
-            # Parse the time
-            time_obj = datetime.strptime(time_str.strip(), '%I:%M %p')
+            # Parse the hour (24-hour format)
+            hour = int(hour_str)
             
             # Parse the amount
             amount = float(amount_str)
             
+            # Create a formatted time string
+            time_str = f"{hour:02d}:00"
+            
             # Determine if the time is before or after 3PM
-            category = "Before 3:00 PM" if time_obj.hour < 15 else "After 3:00 PM"
+            category = "Before 3:00 PM" if hour < 15 else "After 3:00 PM"
             
             data.append({
-                "Time": time_str.strip(),
+                "Hour": hour,
+                "Time": time_str,
                 "Revenue": amount,
-                "Category": category
+                "Category": category,
+                "Quantity": None  # We'll try to extract this in a separate pass
             })
         except Exception as e:
-            st.warning(f"Error parsing entry '{time_str} ${amount_str}': {str(e)}")
+            st.warning(f"Error parsing entry 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
+    
+    # Try to extract quantities separately
+    quantity_pattern = r'(\d{1,2})\s+HRS\s+(\d+)\s+\$'
+    quantity_matches = re.findall(quantity_pattern, text)
+    
+    # Create a dictionary to map hours to quantities
+    hour_to_quantity = {}
+    for hour_str, qty_str in quantity_matches:
+        try:
+            hour = int(hour_str)
+            quantity = int(qty_str)
+            hour_to_quantity[hour] = quantity
+        except Exception:
+            pass
+    
+    # Update quantities in the data
+    for item in data:
+        hour = item["Hour"]
+        if hour in hour_to_quantity:
+            item["Quantity"] = hour_to_quantity[hour]
     
     return pd.DataFrame(data)
 
@@ -89,8 +114,12 @@ def analyze_revenue_data(df):
     stats = df.groupby('Category').agg(
         Total_Revenue=('Revenue', 'sum'),
         Entry_Count=('Revenue', 'count'),
-        Average_Revenue=('Revenue', 'mean')
+        Average_Revenue=('Revenue', 'mean'),
+        Total_Quantity=('Quantity', 'sum')
     ).reset_index()
+    
+    # Replace NaN values in Total_Quantity with 0
+    stats['Total_Quantity'] = stats['Total_Quantity'].fillna(0).astype(int)
     
     return stats
 
@@ -113,7 +142,8 @@ def display_revenue_data(df, stats):
         'Category': 'Time Period',
         'Total_Revenue': 'Total Revenue',
         'Entry_Count': 'Number of Entries',
-        'Average_Revenue': 'Average Revenue'
+        'Average_Revenue': 'Average Revenue',
+        'Total_Quantity': 'Total Quantity'
     })
     
     st.table(formatted_stats)
