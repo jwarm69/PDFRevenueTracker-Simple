@@ -5,8 +5,8 @@ channel = "stable-24_05"
 packages = ["poppler_utils", "tesseract"]
 
 [deployment]
-deploymentTarget = "autoscale"
-run = ["streamlit", "run", "app.py", "--server.port", "5000"]
+deploymentTarget = "cloudrun"
+run = ["sh", "-c", "streamlit run app.py --server.port 5000"]
 
 [workflows]
 runButton = "Project"
