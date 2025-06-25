@@ -78,14 +78,35 @@ def parse_revenue_data(text):
     
     # Show what was matched for debugging
     if matches:
-        st.write("**Matched entries with quantity:**")
+        st.write("**📋 Matched entries with quantity:**")
         for i, (hour_str, qty_str, amount_str) in enumerate(matches):
-            st.write(f"  {i+1}. Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}")
+            # Show if this would be corrected
+            hour_num = int(hour_str)
+            corrected_hour = hour_num
+            if hour_num == 143:
+                corrected_hour = 13
+            elif hour_num == 41:
+                corrected_hour = 11
+            
+            correction_note = f" → Will correct to {corrected_hour}" if hour_num != corrected_hour else ""
+            st.write(f"  {i+1}. Hour: {hour_str}{correction_note}, Qty: {qty_str}, Amount: ${amount_str}")
     
     if alt_matches:
-        st.write("**Additional entries without quantity:**")
+        st.write("**📋 Additional entries without quantity:**")
         for i, (hour_str, amount_str) in enumerate(alt_matches):
-            st.write(f"  {i+1}. Hour: {hour_str}, Amount: ${amount_str}")
+            # Show if this would be corrected
+            hour_num = int(hour_str)
+            corrected_hour = hour_num
+            if hour_num == 143:
+                corrected_hour = 13
+            elif hour_num == 41:
+                corrected_hour = 11
+            
+            correction_note = f" → Will correct to {corrected_hour}" if hour_num != corrected_hour else ""
+            st.write(f"  {i+1}. Hour: {hour_str}{correction_note}, Amount: ${amount_str}")
+            
+    # Show current hours in processed data for debugging
+    st.write("**🔍 Processing Results:**")
     
     # Special pattern for cases where hour number might be missing/unclear (like "HRS 21 $134.19")
     orphan_pattern = r'(?:^|\n)\s*(?:HRS|HR)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
@@ -127,11 +148,13 @@ def parse_revenue_data(text):
                 "Quantity": quantity
             })
             
-            # Debug output for corrections
+            # Debug output for corrections and processing
             if int(hour_str) != hour:
-                st.info(f"OCR Correction: {hour_str} → {hour} (Hour {time_str})")
+                st.info(f"✅ OCR Correction: {hour_str} → {hour} (Hour {time_str}) - Qty: {quantity} - ${amount} - {category}")
+            else:
+                st.success(f"✅ Direct Match: Hour {time_str} - Qty: {quantity} - ${amount} - {category}")
         except Exception as e:
-            st.warning(f"Error parsing entry with quantity 'Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}': {str(e)}")
+            st.warning(f"❌ Error parsing entry with quantity 'Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}': {str(e)}")
     
     # Process entries without quantity from alt_pattern
     for hour_str, amount_str in alt_matches:
@@ -161,9 +184,19 @@ def parse_revenue_data(text):
             category = "Before 3:00 PM" if hour < 15 else "After 3:00 PM"
             
             # Look through the text to try to find the quantity
-            qty_pattern = fr'{hour_str}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)'
-            qty_match = re.search(qty_pattern, text)
-            quantity = int(qty_match.group(1)) if qty_match else None
+            # Use both original and corrected hour numbers for quantity lookup
+            qty_patterns = [
+                fr'{hour_str}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)',  # Original OCR number
+                fr'{hour:02d}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)',  # Corrected number with leading zero
+                fr'{hour}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)'      # Corrected number without leading zero
+            ]
+            
+            quantity = None
+            for pattern in qty_patterns:
+                qty_match = re.search(pattern, text)
+                if qty_match:
+                    quantity = int(qty_match.group(1))
+                    break
             
             data.append({
                 "Hour": hour,
@@ -175,9 +208,11 @@ def parse_revenue_data(text):
             
             # Debug output for corrections
             if int(hour_str) != hour:
-                st.info(f"OCR Correction: {hour_str} → {hour} (Hour {time_str})")
+                st.info(f"✅ Alt-Pattern OCR Correction: {hour_str} → {hour} (Hour {time_str}) - Qty: {quantity} - ${amount} - {category}")
+            else:
+                st.success(f"✅ Alt-Pattern Direct Match: Hour {time_str} - Qty: {quantity} - ${amount} - {category}")
         except Exception as e:
-            st.warning(f"Error parsing entry without quantity 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
+            st.warning(f"❌ Error parsing alt-pattern entry 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
     
     # Special handling for hours 14 and 15 since they are important (2PM and 3PM)
     existing_hours = [item["Hour"] for item in data]
@@ -280,6 +315,24 @@ def parse_revenue_data(text):
     
     # Sort by hour
     sorted_data = sorted(data, key=lambda x: x["Hour"])
+    
+    # Final summary for debugging
+    if sorted_data:
+        hours_found = [item["Hour"] for item in sorted_data]
+        st.write(f"**🎯 Final Result: Found {len(sorted_data)} total entries for hours: {sorted(set(hours_found))}**")
+        
+        # Check specifically for hours 11 and 13
+        if 11 in hours_found:
+            st.success("✅ Hour 11 found!")
+        else:
+            st.error("❌ Hour 11 missing!")
+            
+        if 13 in hours_found:
+            st.success("✅ Hour 13 found!")
+        else:
+            st.error("❌ Hour 13 missing!")
+    else:
+        st.error("❌ No data extracted at all!")
     
     return pd.DataFrame(sorted_data)
 
