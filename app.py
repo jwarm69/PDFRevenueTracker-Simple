@@ -76,6 +76,17 @@ def parse_revenue_data(text):
     
     st.write(f"Found {len(matches)} entries with quantity and {len(alt_matches)} additional entries without quantity")
     
+    # Show what was matched for debugging
+    if matches:
+        st.write("**Matched entries with quantity:**")
+        for i, (hour_str, qty_str, amount_str) in enumerate(matches):
+            st.write(f"  {i+1}. Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}")
+    
+    if alt_matches:
+        st.write("**Additional entries without quantity:**")
+        for i, (hour_str, amount_str) in enumerate(alt_matches):
+            st.write(f"  {i+1}. Hour: {hour_str}, Amount: ${amount_str}")
+    
     # Special pattern for cases where hour number might be missing/unclear (like "HRS 21 $134.19")
     orphan_pattern = r'(?:^|\n)\s*(?:HRS|HR)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
     orphan_matches = re.findall(orphan_pattern, text)
@@ -89,8 +100,8 @@ def parse_revenue_data(text):
             hour = int(hour_str)
             
             # Common OCR errors and corrections
-            if hour == 143:  # OCR often confuses 14 as 143
-                hour = 14
+            if hour == 143:  # OCR often confuses 13 as 143
+                hour = 13
             elif hour == 41:  # OCR often confuses 11 as 41
                 hour = 11
             elif hour > 23:  # Invalid hour, skip
@@ -115,6 +126,10 @@ def parse_revenue_data(text):
                 "Category": category,
                 "Quantity": quantity
             })
+            
+            # Debug output for corrections
+            if int(hour_str) != hour:
+                st.info(f"OCR Correction: {hour_str} → {hour} (Hour {time_str})")
         except Exception as e:
             st.warning(f"Error parsing entry with quantity 'Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}': {str(e)}")
     
@@ -124,8 +139,8 @@ def parse_revenue_data(text):
         hour = int(hour_str)
         
         # Common OCR errors and corrections
-        if hour == 143:  # OCR often confuses 14 as 143
-            hour = 14
+        if hour == 143:  # OCR often confuses 13 as 143
+            hour = 13
         elif hour == 41:  # OCR often confuses 11 as 41
             hour = 11
         elif hour > 23:  # Invalid hour, skip
@@ -157,6 +172,10 @@ def parse_revenue_data(text):
                 "Category": category,
                 "Quantity": quantity
             })
+            
+            # Debug output for corrections
+            if int(hour_str) != hour:
+                st.info(f"OCR Correction: {hour_str} → {hour} (Hour {time_str})")
         except Exception as e:
             st.warning(f"Error parsing entry without quantity 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
     
