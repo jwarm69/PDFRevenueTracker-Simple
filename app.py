@@ -55,89 +55,65 @@ def extract_text_from_images(images):
 
 # Function to parse the extracted text
 def parse_revenue_data(text):
-    # Preprocess text to standardize it a bit
-    # Replace multiple spaces with a single space
-    text = re.sub(r'\s+', ' ', text)
-    
     # Show the extracted text for debugging
     st.write("### Extracted Text (OCR)")
     st.text(text)
     
-    # Find all patterns that look like hour entries with revenue
-    # More flexible pattern to catch different variations including OCR errors
-    # Handle cases where OCR confuses numbers (like 143 for 14, 41 for 11)
-    # Support 1-4 digit revenue amounts (like $5.12, $50.47, $652.63, $1234.56)
-    pattern = r'(\d{1,3})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-    matches = re.findall(pattern, text)
+    # NEW APPROACH: Handle actual business format
+    # Format 1: '11. HRS 36 $195.88' (with dollar sign)
+    # Format 2: '10 HRS 4 47.48' (without dollar sign) 
     
-    # Also try to catch entries that might have gotten split differently
-    alt_pattern = r'(\d{1,3})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b).*?\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-    alt_matches = re.findall(alt_pattern, text)
+    st.write("### 🔍 Pattern Matching Analysis")
     
-    st.write(f"Found {len(matches)} entries with quantity and {len(alt_matches)} additional entries without quantity")
+    # Pattern 1: With dollar sign - handles periods after hour numbers
+    # Supports full business day range: 07-23 (7 AM to 11 PM)
+    pattern_with_dollar = r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+\$(\d+\.\d{2})'
+    matches_with_dollar = re.findall(pattern_with_dollar, text)
+    st.write(f"**💰 With $ sign:** {len(matches_with_dollar)} matches")
+    for match in matches_with_dollar:
+        hour = int(match[0])
+        if 7 <= hour <= 23:  # Valid business hours range
+            st.write(f"  Hour {match[0]}: Qty {match[1]}, Amount ${match[2]}")
+        else:
+            st.warning(f"  ⚠️ Unusual hour {match[0]} found - please verify")
     
-    # Show what was matched for debugging
-    if matches:
-        st.write("**📋 Matched entries with quantity:**")
-        for i, (hour_str, qty_str, amount_str) in enumerate(matches):
-            # Show if this would be corrected
-            hour_num = int(hour_str)
-            corrected_hour = hour_num
-            if hour_num == 143:
-                corrected_hour = 13
-            elif hour_num == 41:
-                corrected_hour = 11
-            
-            correction_note = f" → Will correct to {corrected_hour}" if hour_num != corrected_hour else ""
-            st.write(f"  {i+1}. Hour: {hour_str}{correction_note}, Qty: {qty_str}, Amount: ${amount_str}")
+    # Pattern 2: Without dollar sign - check line by line to avoid conflicts
+    lines = text.split('\n')
+    matches_no_dollar = []
+    st.write(f"**📋 Without $ sign:** Processing {len(lines)} lines...")
     
-    if alt_matches:
-        st.write("**📋 Additional entries without quantity:**")
-        for i, (hour_str, amount_str) in enumerate(alt_matches):
-            # Show if this would be corrected
-            hour_num = int(hour_str)
-            corrected_hour = hour_num
-            if hour_num == 143:
-                corrected_hour = 13
-            elif hour_num == 41:
-                corrected_hour = 11
-            
-            correction_note = f" → Will correct to {corrected_hour}" if hour_num != corrected_hour else ""
-            st.write(f"  {i+1}. Hour: {hour_str}{correction_note}, Amount: ${amount_str}")
-            
-    # Show current hours in processed data for debugging
-    st.write("**🔍 Processing Results:**")
+    for line in lines:
+        # Skip lines that already have $ (already processed above)
+        if '$' in line:
+            continue
+        # Look for lines like '07 HRS 5 32.15' or '08 HRS 12 89.40' (no dollar sign)
+        match = re.search(r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+(\d+\.\d{2})', line)
+        if match:
+            hour = int(match.group(1))
+            if 7 <= hour <= 23:  # Valid business hours range
+                matches_no_dollar.append(match.groups())
+                st.write(f"  Hour {match.group(1)}: Qty {match.group(2)}, Amount ${match.group(3)}")
+            else:
+                st.warning(f"  ⚠️ Unusual hour {match.group(1)} found - please verify")
     
-    # Special pattern for cases where hour number might be missing/unclear (like "HRS 21 $134.19")
-    orphan_pattern = r'(?:^|\n)\s*(?:HRS|HR)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-    orphan_matches = re.findall(orphan_pattern, text)
-    st.write(f"Found {len(orphan_matches)} orphaned entries (hour number unclear)")
+    st.write(f"**📊 Total found:** {len(matches_with_dollar) + len(matches_no_dollar)} entries")
     
+    # Combine all matches and process
     data = []
-    # Process entries with quantity
-    for hour_str, qty_str, amount_str in matches:
+    all_matches = matches_with_dollar + matches_no_dollar
+    
+    for hour_str, qty_str, amount_str in all_matches:
         try:
-            # Parse the hour (24-hour format) with OCR error correction
             hour = int(hour_str)
-            
-            # Common OCR errors and corrections
-            if hour == 143:  # OCR often confuses 13 as 143
-                hour = 13
-            elif hour == 41:  # OCR often confuses 11 as 41
-                hour = 11
-            elif hour > 23:  # Invalid hour, skip
-                continue
-                
-            # Parse the quantity
             quantity = int(qty_str)
+            amount = float(amount_str)
             
-            # Parse the amount (remove commas for thousands separators)
-            amount = float(amount_str.replace(',', ''))
+            # Validate hour range (business hours: 7 AM to 11 PM)
+            if hour < 7 or hour > 23:
+                st.warning(f"⚠️ Skipping unusual hour: {hour} (outside typical business hours 7-23)")
+                continue
             
-            # Create a formatted time string
             time_str = f"{hour:02d}:00"
-            
-            # Determine if the time is before or after 3PM
             category = "Before 3:00 PM" if hour < 15 else "After 3:00 PM"
             
             data.append({
@@ -148,189 +124,30 @@ def parse_revenue_data(text):
                 "Quantity": quantity
             })
             
-            # Debug output for corrections and processing
-            if int(hour_str) != hour:
-                st.info(f"✅ OCR Correction: {hour_str} → {hour} (Hour {time_str}) - Qty: {quantity} - ${amount} - {category}")
-            else:
-                st.success(f"✅ Direct Match: Hour {time_str} - Qty: {quantity} - ${amount} - {category}")
+            st.success(f"✅ Hour {time_str} - Qty: {quantity} - ${amount:.2f} - {category}")
+            
         except Exception as e:
-            st.warning(f"❌ Error parsing entry with quantity 'Hour: {hour_str}, Qty: {qty_str}, Amount: ${amount_str}': {str(e)}")
-    
-    # Process entries without quantity from alt_pattern
-    for hour_str, amount_str in alt_matches:
-        # Parse the hour with OCR error correction
-        hour = int(hour_str)
-        
-        # Common OCR errors and corrections
-        if hour == 143:  # OCR often confuses 13 as 143
-            hour = 13
-        elif hour == 41:  # OCR often confuses 11 as 41
-            hour = 11
-        elif hour > 23:  # Invalid hour, skip
-            continue
-            
-        # Skip if we already have this hour from the primary pattern
-        if any(item["Hour"] == hour for item in data):
-            continue
-            
-        try:
-            # Parse the amount (remove commas for thousands separators)
-            amount = float(amount_str.replace(',', ''))
-            
-            # Create a formatted time string
-            time_str = f"{hour:02d}:00"
-            
-            # Determine if the time is before or after 3PM
-            category = "Before 3:00 PM" if hour < 15 else "After 3:00 PM"
-            
-            # Look through the text to try to find the quantity
-            # Use both original and corrected hour numbers for quantity lookup
-            qty_patterns = [
-                fr'{hour_str}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)',  # Original OCR number
-                fr'{hour:02d}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)',  # Corrected number with leading zero
-                fr'{hour}\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)'      # Corrected number without leading zero
-            ]
-            
-            quantity = None
-            for pattern in qty_patterns:
-                qty_match = re.search(pattern, text)
-                if qty_match:
-                    quantity = int(qty_match.group(1))
-                    break
-            
-            data.append({
-                "Hour": hour,
-                "Time": time_str,
-                "Revenue": amount,
-                "Category": category,
-                "Quantity": quantity
-            })
-            
-            # Debug output for corrections
-            if int(hour_str) != hour:
-                st.info(f"✅ Alt-Pattern OCR Correction: {hour_str} → {hour} (Hour {time_str}) - Qty: {quantity} - ${amount} - {category}")
-            else:
-                st.success(f"✅ Alt-Pattern Direct Match: Hour {time_str} - Qty: {quantity} - ${amount} - {category}")
-        except Exception as e:
-            st.warning(f"❌ Error parsing alt-pattern entry 'Hour: {hour_str}, Amount: ${amount_str}': {str(e)}")
-    
-    # Special handling for hours 14 and 15 since they are important (2PM and 3PM)
-    existing_hours = [item["Hour"] for item in data]
-    
-    # Extended pattern matching specifically for hours 14 and 15
-    for missing_hour in [14, 15]:
-        if missing_hour not in existing_hours:
-            # Try harder to find these important hours with various patterns
-            hour_patterns = [
-                # Try different combinations of characters that OCR might confuse
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})\s*(?:HRS|HR|H|hrs|hr).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})[\s\.]*(?:HRS|HR|H|hrs|hr|pm|PM).*?(\d+).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10}).*?(\d+).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
-                # Look for "14 " or "15 " followed by any characters and then a dollar amount
-                fr'(?:{missing_hour}|{missing_hour}\s|\s{missing_hour}\s).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
-                # For OCR confusion between 1 and l or I
-                fr'(?:l{missing_hour-10}|I{missing_hour-10}).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
-                # Special case for "M HRS" which might be 14 or 15
-                r'M\s*(?:HRS|HR|H).*?(\d+).*?\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-            ]
-            
-            found_match = False
-            for pattern in hour_patterns:
-                match = re.search(pattern, text)
-                if match:
-                    try:
-                        # Try to extract revenue amount
-                        if len(match.groups()) == 1:
-                            revenue = float(match.group(1).replace(',', ''))
-                            quantity = None
-                        elif len(match.groups()) == 2:
-                            quantity = int(match.group(1))
-                            revenue = float(match.group(2).replace(',', ''))
-                        else:
-                            continue
-                            
-                        category = "Before 3:00 PM" if missing_hour < 15 else "After 3:00 PM"
-                        
-                        data.append({
-                            "Hour": missing_hour,
-                            "Time": f"{missing_hour:02d}:00",
-                            "Revenue": revenue,
-                            "Category": category,
-                            "Quantity": quantity
-                        })
-                        
-                        st.success(f"Successfully extracted hour {missing_hour}:00 data using advanced pattern matching.")
-                        found_match = True
-                        break
-                    except Exception as e:
-                        continue
-            
-            # Special case for "M HRS" in your specific PDF
-            if not found_match and missing_hour == 14:
-                # This seems to be present in your sample as "HRS 21 $134.19" (without hour number)
-                orphan_hrs_pattern = r'(?:^|\s)HRS\s+(\d+)\s+\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-                orphan_match = re.search(orphan_hrs_pattern, text)
-                if orphan_match:
-                    try:
-                        quantity = int(orphan_match.group(1))
-                        revenue = float(orphan_match.group(2).replace(',', ''))
-                        
-                        data.append({
-                            "Hour": 14,
-                            "Time": "14:00",
-                            "Revenue": revenue,
-                            "Category": "Before 3:00 PM",
-                            "Quantity": quantity
-                        })
-                        
-                        st.success(f"Successfully extracted hour 14:00 (2PM) data from orphaned 'HRS' pattern.")
-                        found_match = True
-                    except Exception as e:
-                        st.warning(f"Found orphaned 'HRS' pattern but failed to parse it: {str(e)}")
-                
-                # Also try the original M HRS pattern
-                if not found_match:
-                    m_hrs_pattern = r'M\s+HRS\s+(\d+)\s+\$(\d{1,4}(?:,\d{3})*\.\d{2})'
-                    m_match = re.search(m_hrs_pattern, text)
-                    if m_match:
-                        try:
-                            quantity = int(m_match.group(1))
-                            revenue = float(m_match.group(2).replace(',', ''))
-                            
-                            data.append({
-                                "Hour": 14,
-                                "Time": "14:00",
-                                "Revenue": revenue,
-                                "Category": "Before 3:00 PM",
-                                "Quantity": quantity
-                            })
-                            
-                            st.success(f"Successfully extracted hour 14:00 (2PM) data from 'M HRS' pattern.")
-                            found_match = True
-                        except Exception as e:
-                            st.warning(f"Found 'M HRS' pattern but failed to parse it: {str(e)}")
-            
-            if not found_match:
-                st.warning(f"Hour {missing_hour}:00 data could not be found in the PDF despite extended search attempts.")
+            st.error(f"❌ Error parsing: Hour {hour_str}, Qty {qty_str}, Amount ${amount_str} - {str(e)}")
     
     # Sort by hour
     sorted_data = sorted(data, key=lambda x: x["Hour"])
     
-    # Final summary for debugging
+    # Final summary
     if sorted_data:
         hours_found = [item["Hour"] for item in sorted_data]
-        st.write(f"**🎯 Final Result: Found {len(sorted_data)} total entries for hours: {sorted(set(hours_found))}**")
+        unique_hours = sorted(set(hours_found))
+        st.write(f"**🎯 Final Result: Found {len(sorted_data)} entries for hours: {unique_hours}**")
         
-        # Check specifically for hours 11 and 13
-        if 11 in hours_found:
-            st.success("✅ Hour 11 found!")
-        else:
-            st.error("❌ Hour 11 missing!")
-            
-        if 13 in hours_found:
-            st.success("✅ Hour 13 found!")
-        else:
-            st.error("❌ Hour 13 missing!")
+        # Calculate totals for verification
+        total_revenue = sum(item["Revenue"] for item in sorted_data)
+        before_3pm = sum(item["Revenue"] for item in sorted_data if item["Category"] == "Before 3:00 PM")
+        after_3pm = sum(item["Revenue"] for item in sorted_data if item["Category"] == "After 3:00 PM")
+        
+        st.write(f"**💰 Revenue Totals:**")
+        st.write(f"  Before 3:00 PM: ${before_3pm:.2f}")
+        st.write(f"  After 3:00 PM: ${after_3pm:.2f}")
+        st.write(f"  **Total: ${total_revenue:.2f}**")
+        
     else:
         st.error("❌ No data extracted at all!")
     
