@@ -107,7 +107,7 @@ def parse_revenue_data(text):
         try:
             hour = int(hour_str)
             quantity = int(qty_str)
-            amount = float(amount_str)
+            amount = float(amount_str.replace(',', ''))
             
             # Validate hour range (business hours: 7 AM to 11 PM)
             if hour < 7 or hour > 23:
