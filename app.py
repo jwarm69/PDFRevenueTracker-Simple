@@ -4,12 +4,10 @@ import re
 import io
 import tempfile
 import os
-import base64
 from datetime import datetime
 from pdf2image import convert_from_path, convert_from_bytes
 import pytesseract
 from PIL import Image
-from openai_helper import extract_data_from_pdf_text, analyze_image_for_revenue_data
 
 # Set page configuration
 st.set_page_config(
@@ -54,12 +52,6 @@ def extract_text_from_images(images):
     
     return "\n".join(all_text)
 
-# Function to convert image to base64 string for OpenAI API
-def image_to_base64(image):
-    buffered = io.BytesIO()
-    image.save(buffered, format="JPEG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return img_str
 
 # Function to parse the extracted text
 def parse_revenue_data(text):
@@ -304,90 +296,6 @@ def display_revenue_data(df, stats):
         mime="text/csv"
     )
 
-# Function to parse revenue data using OpenAI vision capabilities
-def parse_revenue_data_with_openai(images):
-    st.write("### Using OpenAI for Advanced PDF Analysis")
-    
-    all_results = []
-    progress_bar = st.progress(0)
-    
-    # Process first image with OpenAI vision capabilities
-    try:
-        for i, img in enumerate(images):
-            with st.spinner(f"Using OpenAI to analyze page {i+1}..."):
-                # Convert image to base64
-                img_base64 = image_to_base64(img)
-                
-                # Use OpenAI to analyze the image
-                results = analyze_image_for_revenue_data(img_base64)
-                
-                if results:
-                    st.success(f"Successfully extracted data from page {i+1} using OpenAI.")
-                    all_results.extend(results)
-                else:
-                    st.warning(f"No data found on page {i+1} with OpenAI vision analysis.")
-                    
-                    # Fallback to OCR if OpenAI vision fails
-                    text = pytesseract.image_to_string(img)
-                    ocr_results = extract_data_from_pdf_text(text)
-                    
-                    if ocr_results:
-                        st.success(f"Successfully extracted data from page {i+1} using OpenAI with OCR text.")
-                        all_results.extend(ocr_results)
-                        
-            progress_bar.progress((i + 1) / len(images))
-    
-        # Process the data into the format we need
-        data = []
-        for item in all_results:
-            try:
-                hour = int(item.get("Hour", 0))
-                if hour <= 0 or hour > 23:
-                    continue
-                    
-                # Handle revenue that might be returned with dollar sign
-                revenue_str = str(item.get("Revenue", "0"))
-                if revenue_str.startswith('$'):
-                    revenue_str = revenue_str[1:]  # Remove the dollar sign
-                revenue = float(revenue_str.replace(',', ''))  # Remove commas before converting
-                
-                # Handle quantity that might be a string
-                quantity = item.get("Quantity")
-                if quantity is not None:
-                    if isinstance(quantity, str):
-                        quantity = int(quantity.replace(',', ''))
-                    else:
-                        quantity = int(quantity)
-                
-                # Create a formatted time string
-                time_str = f"{hour:02d}:00"
-                
-                # Determine if the time is before or after 3PM
-                category = "Before 3:00 PM" if hour < 15 else "After 3:00 PM"
-                
-                data.append({
-                    "Hour": hour,
-                    "Time": time_str,
-                    "Revenue": revenue,
-                    "Category": category,
-                    "Quantity": quantity
-                })
-            except Exception as e:
-                st.warning(f"Error processing OpenAI result: {str(e)}")
-        
-        # Check for missing important hours (14 and 15)
-        existing_hours = [item["Hour"] for item in data]
-        for hour in [14, 15]:
-            if hour not in existing_hours:
-                st.warning(f"Hour {hour}:00 data was not found by OpenAI.")
-        
-        # Sort by hour
-        sorted_data = sorted(data, key=lambda x: x["Hour"])
-        
-        return pd.DataFrame(sorted_data)
-    except Exception as e:
-        st.error(f"Error analyzing PDF with OpenAI: {str(e)}")
-        return pd.DataFrame()
 
 # Main function
 def main():
@@ -395,30 +303,19 @@ def main():
     uploaded_file = st.file_uploader("Upload a PDF file containing revenue logs", type=["pdf"])
     
     if uploaded_file is not None:
-        # Add option to choose extraction method
-        extraction_method = st.radio(
-            "Choose extraction method:",
-            ["OpenAI (More Accurate)", "Traditional OCR (Less Accurate)"],
-            index=0
-        )
         
         with st.spinner("Processing PDF file..."):
             # Convert PDF to images
             images = convert_pdf_to_images(uploaded_file)
             
             if images:
-                if extraction_method == "OpenAI (More Accurate)":
-                    # Use OpenAI for extraction
-                    with st.spinner("Using OpenAI to analyze PDF..."):
-                        df = parse_revenue_data_with_openai(images)
-                else:
-                    # Extract text from images using traditional OCR
-                    with st.spinner("Extracting text using OCR..."):
-                        extracted_text = extract_text_from_images(images)
-                    
-                    # Parse the extracted text
-                    with st.spinner("Parsing revenue data..."):
-                        df = parse_revenue_data(extracted_text)
+                # Extract text from images using OCR
+                with st.spinner("Extracting text using OCR..."):
+                    extracted_text = extract_text_from_images(images)
+                
+                # Parse the extracted text
+                with st.spinner("Parsing revenue data..."):
+                    df = parse_revenue_data(extracted_text)
                 
                 # Analyze the revenue data
                 stats = analyze_revenue_data(df)
