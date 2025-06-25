@@ -67,7 +67,8 @@ def parse_revenue_data(text):
     
     # Pattern 1: With dollar sign - handles periods after hour numbers
     # Supports full business day range: 07-23 (7 AM to 11 PM)
-    pattern_with_dollar = r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+\$(\d+\.\d{2})'
+    # Supports comma-separated amounts: $1,270.17
+    pattern_with_dollar = r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+\$(\d{1,4}(?:,\d{3})*\.\d{2})'
     matches_with_dollar = re.findall(pattern_with_dollar, text)
     st.write(f"**💰 With $ sign:** {len(matches_with_dollar)} matches")
     for match in matches_with_dollar:
@@ -86,8 +87,8 @@ def parse_revenue_data(text):
         # Skip lines that already have $ (already processed above)
         if '$' in line:
             continue
-        # Look for lines like '07 HRS 5 32.15' or '08 HRS 12 89.40' (no dollar sign)
-        match = re.search(r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+(\d+\.\d{2})', line)
+        # Look for lines like '07 HRS 5 32.15' or '08 HRS 12 1,089.40' (no dollar sign)
+        match = re.search(r'(\d{1,2})\.?\s*HRS\s+(\d+)\s+(\d{1,4}(?:,\d{3})*\.\d{2})', line)
         if match:
             hour = int(match.group(1))
             if 7 <= hour <= 23:  # Valid business hours range
