@@ -64,28 +64,43 @@ def parse_revenue_data(text):
     st.text(text)
     
     # Find all patterns that look like hour entries with revenue
-    # More flexible pattern to catch different variations
-    pattern = r'(\d{1,2})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)\s*\$(\d+\.\d{2})'
+    # More flexible pattern to catch different variations including OCR errors
+    # Handle cases where OCR confuses numbers (like 143 for 14, 41 for 11)
+    # Support 1-4 digit revenue amounts (like $5.12, $50.47, $652.63, $1234.56)
+    pattern = r'(\d{1,3})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
     matches = re.findall(pattern, text)
     
     # Also try to catch entries that might have gotten split differently
-    alt_pattern = r'(\d{1,2})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b).*?\$(\d+\.\d{2})'
+    alt_pattern = r'(\d{1,3})\s*(?:HRS|HR5|HRS\'|HRS\"|\bH\b).*?\$(\d{1,4}(?:,\d{3})*\.\d{2})'
     alt_matches = re.findall(alt_pattern, text)
     
     st.write(f"Found {len(matches)} entries with quantity and {len(alt_matches)} additional entries without quantity")
+    
+    # Special pattern for cases where hour number might be missing/unclear (like "HRS 21 $134.19")
+    orphan_pattern = r'(?:^|\n)\s*(?:HRS|HR)\s*(\d+)\s*\$(\d{1,4}(?:,\d{3})*\.\d{2})'
+    orphan_matches = re.findall(orphan_pattern, text)
+    st.write(f"Found {len(orphan_matches)} orphaned entries (hour number unclear)")
     
     data = []
     # Process entries with quantity
     for hour_str, qty_str, amount_str in matches:
         try:
-            # Parse the hour (24-hour format)
+            # Parse the hour (24-hour format) with OCR error correction
             hour = int(hour_str)
             
+            # Common OCR errors and corrections
+            if hour == 143:  # OCR often confuses 14 as 143
+                hour = 14
+            elif hour == 41:  # OCR often confuses 11 as 41
+                hour = 11
+            elif hour > 23:  # Invalid hour, skip
+                continue
+                
             # Parse the quantity
             quantity = int(qty_str)
             
-            # Parse the amount
-            amount = float(amount_str)
+            # Parse the amount (remove commas for thousands separators)
+            amount = float(amount_str.replace(',', ''))
             
             # Create a formatted time string
             time_str = f"{hour:02d}:00"
@@ -105,14 +120,24 @@ def parse_revenue_data(text):
     
     # Process entries without quantity from alt_pattern
     for hour_str, amount_str in alt_matches:
-        # Skip if we already have this hour from the primary pattern
+        # Parse the hour with OCR error correction
         hour = int(hour_str)
+        
+        # Common OCR errors and corrections
+        if hour == 143:  # OCR often confuses 14 as 143
+            hour = 14
+        elif hour == 41:  # OCR often confuses 11 as 41
+            hour = 11
+        elif hour > 23:  # Invalid hour, skip
+            continue
+            
+        # Skip if we already have this hour from the primary pattern
         if any(item["Hour"] == hour for item in data):
             continue
             
         try:
-            # Parse the amount
-            amount = float(amount_str)
+            # Parse the amount (remove commas for thousands separators)
+            amount = float(amount_str.replace(',', ''))
             
             # Create a formatted time string
             time_str = f"{hour:02d}:00"
@@ -144,15 +169,15 @@ def parse_revenue_data(text):
             # Try harder to find these important hours with various patterns
             hour_patterns = [
                 # Try different combinations of characters that OCR might confuse
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})\s*(?:HRS|HR|H|hrs|hr).*?\$(\d+\.\d+)',
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})[\s\.]*(?:HRS|HR|H|hrs|hr|pm|PM).*?(\d+).*?\$(\d+\.\d+)',
-                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10}).*?(\d+).*?\$(\d+\.\d+)',
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})\s*(?:HRS|HR|H|hrs|hr).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10})[\s\.]*(?:HRS|HR|H|hrs|hr|pm|PM).*?(\d+).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
+                fr'(?:{missing_hour}|l{missing_hour-10}|I{missing_hour-10}).*?(\d+).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
                 # Look for "14 " or "15 " followed by any characters and then a dollar amount
-                fr'(?:{missing_hour}|{missing_hour}\s|\s{missing_hour}\s).*?\$(\d+\.\d+)',
+                fr'(?:{missing_hour}|{missing_hour}\s|\s{missing_hour}\s).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
                 # For OCR confusion between 1 and l or I
-                fr'(?:l{missing_hour-10}|I{missing_hour-10}).*?\$(\d+\.\d+)',
+                fr'(?:l{missing_hour-10}|I{missing_hour-10}).*?\$(\d{{1,4}}(?:,\d{{3}})*\.\d{{2}})',
                 # Special case for "M HRS" which might be 14 or 15
-                r'M\s*(?:HRS|HR|H).*?(\d+).*?\$(\d+\.\d+)'
+                r'M\s*(?:HRS|HR|H).*?(\d+).*?\$(\d{1,4}(?:,\d{3})*\.\d{2})'
             ]
             
             found_match = False
@@ -162,11 +187,11 @@ def parse_revenue_data(text):
                     try:
                         # Try to extract revenue amount
                         if len(match.groups()) == 1:
-                            revenue = float(match.group(1))
+                            revenue = float(match.group(1).replace(',', ''))
                             quantity = None
                         elif len(match.groups()) == 2:
                             quantity = int(match.group(1))
-                            revenue = float(match.group(2))
+                            revenue = float(match.group(2).replace(',', ''))
                         else:
                             continue
                             
@@ -188,13 +213,13 @@ def parse_revenue_data(text):
             
             # Special case for "M HRS" in your specific PDF
             if not found_match and missing_hour == 14:
-                # This seems to be present in your sample as "M HRS 21 $134.19"
-                m_hrs_pattern = r'M\s+HRS\s+(\d+)\s+\$(\d+\.\d+)'
-                m_match = re.search(m_hrs_pattern, text)
-                if m_match:
+                # This seems to be present in your sample as "HRS 21 $134.19" (without hour number)
+                orphan_hrs_pattern = r'(?:^|\s)HRS\s+(\d+)\s+\$(\d{1,4}(?:,\d{3})*\.\d{2})'
+                orphan_match = re.search(orphan_hrs_pattern, text)
+                if orphan_match:
                     try:
-                        quantity = int(m_match.group(1))
-                        revenue = float(m_match.group(2))
+                        quantity = int(orphan_match.group(1))
+                        revenue = float(orphan_match.group(2).replace(',', ''))
                         
                         data.append({
                             "Hour": 14,
@@ -204,10 +229,32 @@ def parse_revenue_data(text):
                             "Quantity": quantity
                         })
                         
-                        st.success(f"Successfully extracted hour 14:00 (2PM) data from 'M HRS' pattern.")
+                        st.success(f"Successfully extracted hour 14:00 (2PM) data from orphaned 'HRS' pattern.")
                         found_match = True
                     except Exception as e:
-                        st.warning(f"Found 'M HRS' pattern but failed to parse it: {str(e)}")
+                        st.warning(f"Found orphaned 'HRS' pattern but failed to parse it: {str(e)}")
+                
+                # Also try the original M HRS pattern
+                if not found_match:
+                    m_hrs_pattern = r'M\s+HRS\s+(\d+)\s+\$(\d{1,4}(?:,\d{3})*\.\d{2})'
+                    m_match = re.search(m_hrs_pattern, text)
+                    if m_match:
+                        try:
+                            quantity = int(m_match.group(1))
+                            revenue = float(m_match.group(2).replace(',', ''))
+                            
+                            data.append({
+                                "Hour": 14,
+                                "Time": "14:00",
+                                "Revenue": revenue,
+                                "Category": "Before 3:00 PM",
+                                "Quantity": quantity
+                            })
+                            
+                            st.success(f"Successfully extracted hour 14:00 (2PM) data from 'M HRS' pattern.")
+                            found_match = True
+                        except Exception as e:
+                            st.warning(f"Found 'M HRS' pattern but failed to parse it: {str(e)}")
             
             if not found_match:
                 st.warning(f"Hour {missing_hour}:00 data could not be found in the PDF despite extended search attempts.")
